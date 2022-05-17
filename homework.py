@@ -1,19 +1,13 @@
+import logging
+import os
 import sys
 import time
 
 import requests
-import os
-from dotenv import load_dotenv
 import telegram
-import logging
+from dotenv import load_dotenv
 
 load_dotenv()
-
-logging.basicConfig(
-    level=logging.INFO,
-    filename='botlog.log',
-    format='%(asctime)s, [%(levelname)s], %(message)s'
-)
 
 logger = logging.getLogger(__name__)
 logger.setLevel(logging.INFO)
@@ -43,14 +37,15 @@ HOMEWORK_STATUSES = {
 
 def send_message(bot, message):
     """Отправка сообщения в телеграм."""
+    logger.info('Сообщение будет отправлено в телеграм')
     try:
         bot.send_message(TELEGRAM_CHAT_ID, message)
-        logger.info('Сообщение успешно отправлено')
     except Exception as error:
-        logger.error(
-            f'При отправке сообщения возникла ошибка: {error}',
-            exc_info=True
+        raise (
+            f'При отправке сообщения возникла ошибка: {error}'
         )
+    else:
+        logger.info('Сообщение успешно отправлено')
 
 
 def get_api_answer(current_timestamp):
@@ -60,53 +55,53 @@ def get_api_answer(current_timestamp):
     try:
         response = requests.get(ENDPOINT, headers=HEADERS, params=params)
     except Exception as error:
-        logger.error(
-            f'При отправке запроса произошла ошибка: {error}',
-            exc_info=True
+        raise (
+            f'При отправке сообщения возникла ошибка: {error}'
         )
-        raise error
     if response.status_code == requests.codes.ok:
         logger.info(f'Запрос к адресу {ENDPOINT} успешно отправлен')
         return response.json()
     elif response.status_code != requests.codes.ok:
-        logger.error(f'Запрос по адресу {ENDPOINT} недоступен. '
-                     f'Код ошибки: {response.status_code}')
-        raise
+        raise (f'Запрос по адресу {ENDPOINT} недоступен. '
+               f'Код ошибки: {response.status_code}')
 
 
 def check_response(response):
     """Проверяем что полученный ответ приведен к типам данных Python."""
     if not (isinstance(response, dict)):
-        logger.error('Тип данных не соответсвует ожидаемым')
-        raise TypeError('Тип данных не соответсвует ожидаемым')
+        raise TypeError(
+            f"Тип данных не соответсвует ожидаемым. "
+            f"Ожидается тип данных: {dict}. Получен: {type(response)} ")
     elif len(response['homeworks']) == 0:
-        logger.debug('Доступных домашних работ для проверки нет')
         raise IndexError('Пустой список домашних работ')
+    elif not (isinstance(response['homeworks'], list)):
+        raise TypeError(f'Тип данных не соответсвует ожидаемым. '
+                        f'Ожидается тип данных: {list}. '
+                        f'Получен: {type(response["homeworks"])}')
     else:
         return response['homeworks'][0]
 
 
 def parse_status(homework):
     """Получаем название и статус домашней работы."""
-    if "homework_name" not in homework:
-        raise KeyError("homework_name отсутствует в homework")
+    if ('homework_name' or 'status') not in homework:
+        raise KeyError("homework_name или status отсутствуют в homework")
+
     homework_name = homework.get('homework_name')
     homework_status = homework.get('status')
 
     if homework_status in HOMEWORK_STATUSES:
         verdict = HOMEWORK_STATUSES[homework_status]
-    else:
-        logger.error(
-            f'Статус домашней работы {homework_status} не определен.')
-
-    return f'Изменился статус проверки работы "{homework_name}". {verdict}'
+        return f'Изменился статус проверки работы "{homework_name}". {verdict}'
+    raise (f'Статус домашней работы {homework_status} не определен.')
 
 
 def check_tokens():
     """Проверяем доступность токенов."""
-    if PRACTICUM_TOKEN and TELEGRAM_TOKEN and TELEGRAM_CHAT_ID is not None:
+    token_list = [PRACTICUM_TOKEN, TELEGRAM_TOKEN, TELEGRAM_CHAT_ID]
+    if all(token_list) is not None:
         logger.info('Необходимые токены доступны')
-        return True
+        return all(token_list)
     else:
         if PRACTICUM_TOKEN is None:
             logger.critical(
@@ -127,7 +122,7 @@ def main():
     """Основная логика работы бота."""
     if not check_tokens():
         logger.critical('Ошибка при проверке токенов')
-
+        sys.exit()
     bot = telegram.Bot(token=TELEGRAM_TOKEN)
     current_timestamp = int(time.time())
     message_error = ''
@@ -143,17 +138,21 @@ def main():
                     message_bot = message
                 logger.debug('Статус домашней работы не изменился')
             check_response(response)
-            time.sleep(RETRY_TIME)
         except Exception as error:
             logger.error(f'В работе бота выявлена ошибка {error}')
             message = f'Сбой в работе программы: {error}'
             if message != message_error:
                 send_message(bot, message)
                 message_error = message
-            time.sleep(RETRY_TIME)
         finally:
             time.sleep(RETRY_TIME)
 
 
 if __name__ == '__main__':
+    logging.basicConfig(
+        level=logging.INFO,
+        filename='botlog.log',
+        format='%(asctime)s, [%(levelname)s], %(message)s'
+    )
+
     main()
