@@ -99,7 +99,7 @@ def parse_status(homework):
 def check_tokens():
     """Проверяем доступность токенов."""
     token_list = [PRACTICUM_TOKEN, TELEGRAM_TOKEN, TELEGRAM_CHAT_ID]
-    if all(token_list) is not None:
+    if all(token_list):
         logger.info('Необходимые токены доступны')
         return all(token_list)
     else:
